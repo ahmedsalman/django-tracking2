@@ -18,3 +18,7 @@ if hasattr(settings, 'TRACKING_USE_GEOIP'):
 TRACK_REFERER = getattr(settings, 'TRACK_REFERER', False)
 
 TRACK_QUERY_STRING = getattr(settings, 'TRACK_QUERY_STRING', False)
+
+TRACK_ANONYMOUS_USERS_WITH_COOKIES = getattr(settings, 'TRACK_ANONYMOUS_USERS_WITH_COOKIES', False)
+
+
