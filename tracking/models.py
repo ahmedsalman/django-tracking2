@@ -18,7 +18,8 @@ log = logging.getLogger(__file__)
 
 
 class Visitor(models.Model):
-    session_key = models.CharField(max_length=40, primary_key=True)
+    session_key = models.CharField(max_length=72)
+    cookie_key = models.CharField(max_length=72)
     user = models.ForeignKey(User, related_name='visit_history',
                              null=True, editable=False)
     # Update to GenericIPAddress in Django 1.4
@@ -44,29 +45,9 @@ class Visitor(models.Model):
         return bool(self.end_time)
     session_ended.boolean = True
 
-    @property
-    def geoip_data(self):
-        "Attempts to retrieve MaxMind GeoIP data based upon the visitor's IP"
-        if not HAS_GEOIP or not TRACK_USING_GEOIP:
-            return
-
-        if not hasattr(self, '_geoip_data'):
-            self._geoip_data = None
-            try:
-                gip = GeoIP(cache=GEOIP_CACHE_TYPE)
-                self._geoip_data = gip.city(self.ip_address)
-            except GeoIPException:
-                msg = 'Error getting GeoIP data for IP "{0}"'.format(
-                    self.ip_address)
-                log.exception(msg)
-
-        return self._geoip_data
 
     class Meta(object):
         ordering = ('-start_time',)
-        permissions = (
-            ('view_visitor', 'Can view visitor'),
-        )
 
 
 class Pageview(models.Model):
@@ -81,8 +62,3 @@ class Pageview(models.Model):
 
     class Meta(object):
         ordering = ('-view_time',)
-
-
-from tracking import handlers
-user_logged_out.connect(handlers.track_ended_session)
-post_save.connect(handlers.post_save_cache, sender=Visitor)
