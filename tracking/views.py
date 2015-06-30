@@ -1,11 +1,15 @@
 import logging
 
 from datetime import timedelta
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
+from django.conf import settings
 
 from django import forms
 from django.shortcuts import render
 from django.contrib.auth.decorators import permission_required
 from django.utils.timezone import now
+from django.shortcuts import render_to_response
 
 from tracking.models import Visitor, Pageview
 from tracking.settings import TRACK_PAGEVIEWS
@@ -66,3 +70,33 @@ def dashboard(request):
         'pageview_stats': pageview_stats,
     }
     return render(request, 'tracking/dashboard.html', context)
+
+
+
+def show_light_box(request):
+
+    flag=False
+    key = "ask_for_login_or_newsletter"
+    value = request.COOKIES.get(key, 0)
+    user_visits = Visitor.objects.filter(cookie_key=value)
+    for item in settings.TRACKING_ANONYMOUS_USER_SETTINGS:
+        if item['days']:
+            date = timezone.now() + relativedelta(days=+int(item['days']))
+            if user_visits.filter(start_time__lt=date).count() > item['views']:
+                flag = True
+        else:
+            if user_visits.all().count() > item['views']:
+                flag = True
+
+    if request.is_ajax():
+        context = {
+                    'headline': 'hello world',
+                    'detail': 'hello world detail'
+                   }
+        return render_to_response('tracking/light-box.html', context)
+    else:
+        context = {
+                    'headline': 'hello world',
+                    'detail': 'hello world detail'
+                   }
+        return render_to_response('tracking/light-box.html', context)
