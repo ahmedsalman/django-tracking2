@@ -5,11 +5,10 @@ from django.utils import timezone
 from django.db import models
 from django.db.models import Count, Avg
 from tracking.settings import TRACK_PAGEVIEWS, TRACK_ANONYMOUS_USERS
-from tracking.cache import CacheManager
 from .compat import User
 
 
-class VisitorManager(CacheManager):
+class VisitorManager(models.Manager):
     def active(self, registered_only=True):
         "Returns all active users, e.g. not logged and non-expired session."
         visitors = self.filter(
