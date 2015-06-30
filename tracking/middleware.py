@@ -1,9 +1,12 @@
 import re
 import logging
 import warnings
+import uuid
+import datetime
 
 from django.utils import timezone
 from django.utils.encoding import smart_text
+from django.conf import settings
 
 from tracking.models import Visitor, Pageview
 from tracking.utils import get_ip_address, total_seconds
@@ -15,6 +18,7 @@ from tracking.settings import (
     TRACK_PAGEVIEWS,
     TRACK_QUERY_STRING,
     TRACK_REFERER,
+    TRACK_ANONYMOUS_USERS_WITH_COOKIES,
 )
 
 track_ignore_urls = [re.compile(x) for x in TRACK_IGNORE_URLS]
@@ -89,6 +93,33 @@ class VisitorTrackingMiddleware(object):
         visitor.save()
         return visitor
 
+
+    def _refresh_cookie_visitor(self, user, request, visit_time):
+        # A Visitor row is unique by cookie_key
+        key = "ask_for_login_or_newsletter"
+        cookie_key = request.COOKIES.get(key, None)
+        session_key = request.session.session_key
+        if not cookie_key:
+            return
+
+        time_on_site = 1
+        expiry_age = request.session.get_expiry_age()
+        expiry_time = request.session.get_expiry_date()
+
+        # grab the latest User-Agent and store it
+        user_agent = request.META.get('HTTP_USER_AGENT', None)
+        if user_agent:
+            user_agent = smart_text(
+                user_agent, encoding='latin-1', errors='ignore')
+
+        ip_address = get_ip_address(request)
+        obj = Visitor.objects.create(session_key=session_key, ip_address=ip_address, cookie_key=cookie_key,
+                          time_on_site=time_on_site, expiry_age=expiry_age, expiry_time=expiry_time,
+                          user_agent=user_agent)
+        obj.save()
+        return obj
+
+
     def _add_pageview(self, visitor, request, view_time):
         referer = None
         query_string = None
@@ -127,10 +158,48 @@ class VisitorTrackingMiddleware(object):
         # is the only time we can guarantee.
         now = timezone.now()
 
-        # update/create the visitor object for this request
-        visitor = self._refresh_visitor(user, request, now)
+        # update/create the visitor object for this request with respect to cookies
+        if TRACK_ANONYMOUS_USERS_WITH_COOKIES:
+            visitor = self._refresh_cookie_visitor(user, request, now)
+        else:
+            visitor = self._refresh_visitor(user, request, now)
 
-        if TRACK_PAGEVIEWS:
+        if TRACK_PAGEVIEWS and not TRACK_ANONYMOUS_USERS_WITH_COOKIES:
             self._add_pageview(visitor, request, now)
 
         return response
+
+
+class SetAndUpdateCookieMiddleware(object):
+
+    def process_response(self, request, response):
+        max_age = 360 * 24 * 60 * 60
+        key = "ask_for_login_or_newsletter"
+        value = request.COOKIES.get(key, None)
+        if not value:
+            value = self.ucode()
+
+        if request.user.is_authenticated():
+            value = "user_registered"
+
+        if not request.user.is_authenticated() and value != "user_registered":
+            expires = datetime.datetime.strftime(datetime.datetime.utcnow() + datetime.timedelta(seconds=max_age), "%a, %d-%b-%Y %H:%M:%S GMT")
+            response.set_cookie(key, value, max_age=max_age, expires=expires, domain=settings.SESSION_COOKIE_DOMAIN, secure=settings.SESSION_COOKIE_SECURE or None)
+
+        return response
+
+
+    def ucode(self):
+        MAX_TRIES = 16
+        loop_num = 0
+        unique = False
+        while not unique:
+            if loop_num < MAX_TRIES:
+                new_code = str(uuid.uuid4())
+                if not Visitor.objects.filter(session_key=new_code).exists():
+                    unique = True
+                loop_num += 1
+            else:
+                raise ValueError("Couldn't generate a unique code.")
+
+        return new_code
